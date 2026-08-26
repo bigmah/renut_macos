@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Launch Banjo-Kazooie: Nuts & Bolts (reNut) on macOS ARM64.
-# The binary must run from its build dir: assets/ and renut.toml are symlinked
-# there, and the Vulkan/MoltenVK loader is staged in ./vulkan.
+# Launch Banjo-Kazooie: Nuts & Bolts on macOS (Apple Silicon).
+# Must run from the build dir: assets/ and renut.toml are symlinked there, and
+# the Vulkan/MoltenVK loader is staged in ./vulkan.
 set -euo pipefail
-BUILD="$(dirname "$0")/tools/reNut/out/build/mac-arm64-release"
+BUILD="$(cd "$(dirname "$0")" && pwd)/tools/reNut/out/build/mac-arm64-release"
+[ -x "$BUILD/renut" ] || { echo "Not built yet. See README.md (Build)." >&2; exit 1; }
 cd "$BUILD"
 exec ./renut "$@"

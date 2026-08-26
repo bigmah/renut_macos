@@ -1,18 +1,35 @@
 # Banjo-Kazooie: Nuts & Bolts on macOS (Apple Silicon)
 
-Static recompilation of the Xbox 360 game to a native arm64 macOS binary, using
-[rexglue-sdk](https://github.com/rexglue/rexglue-sdk) and
-[reNut](https://github.com/masterspike52/reNut).
+Build scaffolding for running [Banjo-Kazooie: Nuts &
+Bolts](https://en.wikipedia.org/wiki/Banjo-Kazooie:_Nuts_%26_Bolts) as a native
+arm64 macOS binary, statically recompiled from Xbox 360 PowerPC.
 
-Verified booting on an M4 Pro (macOS 26.6): MoltenVK creates a `VkDevice` on the
-Apple M4 Pro and a 2560x1440 swapchain on a `CAMetalLayer`.
+**This repo contains no third-party code.** It is a thin consumer: the game
+project and the recompiler are pulled in as submodules from forks, so their
+code stays in their own repositories with their own history.
+
+| Component | Consumed from | Upstream |
+| --- | --- | --- |
+| reNut | [bigmah/reNut](https://github.com/bigmah/reNut) `macos-arm64` | [masterspike52/reNut](https://github.com/masterspike52/reNut) |
+| ReXGlue SDK | [bigmah/rexglue-sdk](https://github.com/bigmah/rexglue-sdk) `macos-arm64-fixes` | [rexglue/rexglue-sdk](https://github.com/rexglue/rexglue-sdk) |
+
+All the hard work - the recompiler, the runtime, the game-specific hooks - is
+theirs. What lives here is the macOS platform work and the build glue.
+
+Verified on an M4 Pro (macOS 26.6): MoltenVK creates a `VkDevice` on the Apple
+GPU and a 2560x1440 swapchain on a `CAMetalLayer`.
+
+> **No game data is included, and none is redistributable.** You supply your own
+> disc image. The recompiler transforms files you already own; it ships none of
+> them.
 
 ## Requirements
 
-You must supply your own disc image of the **US (NTSC-U)** release. Nothing in
-this repo contains game data, and none of it is redistributable.
+- Apple Silicon Mac, macOS 13.3+
+- Your own disc image of the **US (NTSC-U)** release
+- ~15 GB free: 7.3 GB ISO, 6.1 GB extracted, ~220 MB generated C++, ~1 GB build
 
-Verify a candidate image before building:
+Worth verifying an image before building:
 
 | Field | Expected |
 | --- | --- |
@@ -20,159 +37,117 @@ Verify a candidate image before building:
 | Title ID | `4D5307ED` |
 | Region | `0x000000FF` (NTSC-U) |
 
-reNut's README notes the title update is not used; the recomp runs off the
-disc's `default.xex`.
+The title update is not used; the recomp runs off the disc's `default.xex`.
 
-## Layout
-
-`tools/reNut` is tracked as a submodule. The other two are local-only checkouts
-and stay gitignored.
-
-| Path | Tracked | Role |
-| --- | --- | --- |
-| `tools/reNut` | submodule, pinned `f4c41bc` | The game project and the macOS port. Vendors the SDK at `thirdparty/rexglue-sdk`. |
-| `tools/rexglue-sdk` | no | **Not used by the build.** A local working copy that holds the SDK fixes branch for upstreaming. |
-| `tools/extract-xiso` | no | Build tool; not in Homebrew. |
-
-Submodules nest, so `--recurse-submodules` on this repo brings reNut and, inside
-it, the pinned SDK - one clone gets the whole toolchain.
-
-### Which SDK the build uses
-
-`tools/reNut/thirdparty/rexglue-sdk` - a submodule pinned to `c94f5eb`,
-upstream and unpatched. reNut resolves the SDK in this order, so the pinned
-copy wins over any sibling checkout lying around:
-
-1. `-DREXSDK_DIR=<path>`, if passed
-2. `thirdparty/rexglue-sdk` - the submodule
-3. `../rexglue-sdk` - a sibling checkout
-4. `find_package(rexglue)` - an installed SDK
-
-Pinning matters more than usual here. macOS support landed only after v0.9.0,
-and the version carrying it - 0.10.0 - is not tagged, so there is no release to
-ask for by name. The SDK is also explicit that it is early and expects breaking
-changes: the 0.8.0 API this project was written against no longer exists. The
-commit is recorded in the gitlink, so `--recurse-submodules` reproduces it
-exactly rather than trusting prose.
-
-The build deliberately runs against **unpatched** upstream. reNut carries its
-own workarounds for the two SDK bugs it would otherwise hit, so it stays
-buildable for anyone who has not applied `macos-arm64-fixes`.
-
-`tools/reNut/assets/` (extracted disc) and `tools/reNut/generated/` (C++ emitted
-from the guest XEX) are both gitignored as game-derived content.
-
-Budget roughly **15 GB** free: 7.3 GB ISO, 6.1 GB extracted, ~220 MB generated
-C++, and ~1 GB of build output. The SDK's own submodules add ~400 MB.
-
-## Scripts
-
-- `./play.sh` - launch. Runs from the build directory, where `assets/`,
-  `renut.toml` and the staged `vulkan/` loader live.
-- `./rebuild.sh` - rebuild after edits. Codegen re-runs automatically when the
-  XEX or any `config/*.toml` changes, via its depfile.
-
-## Building from scratch
+## Build
 
 ```sh
 brew install cmake ninja vulkan-loader molten-vk
 
-# This repo, with reNut and the pinned SDK nested inside it.
-git clone --recurse-submodules <this-repo> xbox && cd xbox
-
-git clone https://github.com/XboxDev/extract-xiso.git tools/extract-xiso
-
-# extract-xiso handles the XGD2 partition offset correctly
-cmake -S tools/extract-xiso -B tools/extract-xiso/build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build tools/extract-xiso/build
-./tools/extract-xiso/build/extract-xiso -d tools/reNut/assets your_game.iso
-
-# Build the codegen tool from the pinned SDK, then recompile the XEX (~10s)
-SDK=tools/reNut/thirdparty/rexglue-sdk
-cmake --preset mac-arm64 -S $SDK \
-  -DCMAKE_C_COMPILER=/usr/bin/clang -DCMAKE_CXX_COMPILER=/usr/bin/clang++ \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3
-cmake --build $SDK/out/build/mac-arm64 --config Release --target rexglue --parallel
-(cd tools/reNut && thirdparty/rexglue-sdk/out/mac-arm64/Release/rexglue codegen renut_manifest.toml)
-
-# Build the game. The submodule is found automatically.
-cmake --preset mac-arm64-release -S tools/reNut
-cmake --build tools/reNut/out/build/mac-arm64-release --parallel
+git clone --recurse-submodules https://github.com/bigmah/renut_macos.git
+cd renut_macos
 ```
 
-The submodule already points at the port commit, so there is no branch to check
-out by hand. The SDK fixes branch is *not* required to build - see
-[Local branches](#local-branches).
+`--recurse-submodules` matters, and it nests two levels: this repo pulls reNut,
+which pulls the SDK. If you cloned without it, run `git submodule update --init
+--recursive`.
 
-First launch shows a path-setup wizard. To skip it, write `renut.cfg` next to
-the binary with `game_data_root` and `user_data_root` set.
+Extract your disc into `tools/reNut/assets/` (gitignored). `extract-xiso`
+handles the XGD2 partition offset and is not in Homebrew, so build it:
 
-## Local branches
+```sh
+git clone https://github.com/XboxDev/extract-xiso.git /tmp/extract-xiso
+cmake -S /tmp/extract-xiso -B /tmp/extract-xiso/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build /tmp/extract-xiso/build
+/tmp/extract-xiso/build/extract-xiso -d tools/reNut/assets /path/to/your.iso
+```
 
-Both are commits against their respective upstreams, so they stay submittable.
+Build the codegen tool from the pinned SDK, then recompile the XEX (~10s):
 
-The reNut port is published at
-[bigmah/renut_macos](https://github.com/bigmah/renut_macos) and is what the
-submodule points at. That repo is **not** a fork of `masterspike52/reNut`, so
-opening a PR upstream from it is not possible as-is; doing that later means
-forking and re-pushing the same commits, which is cheap since they are already
-rebased on upstream.
+```sh
+cd tools/reNut
+cmake --preset mac-arm64 -S thirdparty/rexglue-sdk \
+  -DCMAKE_C_COMPILER=/usr/bin/clang -DCMAKE_CXX_COMPILER=/usr/bin/clang++ \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3
+cmake --build thirdparty/rexglue-sdk/out/build/mac-arm64 --config Release --target rexglue --parallel
+thirdparty/rexglue-sdk/out/mac-arm64/Release/rexglue codegen renut_manifest.toml
+```
 
-The SDK fixes are **local-only** - no remote hosts them yet. They are not
-needed to build, since reNut carries its own workarounds.
+Then the game itself (~3 min cold, on an M4 Pro):
 
-### `rexglue-sdk` @ `macos-arm64-fixes`
+```sh
+cmake --preset mac-arm64-release
+cmake --build out/build/mac-arm64-release --parallel
+```
 
-Three independent SDK bugs, each reproducible without this project:
+## Run
 
-| Commit | Fix |
+From the repository root:
+
+```sh
+./play.sh      # launch
+./rebuild.sh   # rebuild after edits; codegen re-runs when inputs change
+```
+
+First launch shows a path-setup wizard. To skip it, drop a `renut.cfg` beside
+the binary in `tools/reNut/out/build/mac-arm64-release/`:
+
+```ini
+game_data_root   = "/absolute/path/to/renut_macos/tools/reNut/assets"
+user_data_root   = "/Users/you/Library/Application Support/renut"
+update_data_root = ""
+```
+
+Runtime settings live in `tools/reNut/renut.toml`. Keep `log_level = "off"`
+outside of debugging - see Known issues.
+
+## Why forks rather than upstream
+
+Neither upstream builds on macOS as-is.
+
+**reNut** needed the platform work: the Win32 folder picker replaced with
+SDL3's, the frame limiter moved off a Win32 waitable timer, the executable-path
+lookup moved to the SDK's own helper, and Discord Rich Presence guarded behind
+`__has_include` since that header left the SDK after 0.8.0. Two of the fixes are
+not macOS-specific at all - `cvar_menu.cpp` and `FPS.cpp` were not compiled by
+any CMakeLists despite codegen emitting calls into them, which fails the link on
+every platform.
+
+`macos-arm64-port` on the fork holds that as six commits against upstream reNut,
+kept rebasable in case they are useful there. `macos-arm64` is the same work
+plus the SDK pin below, and is what this repo consumes.
+
+**The SDK** needed four fixes, all in consumer mode - none of them show up in
+the SDK's own builds or CI, because standalone it is the top-level project:
+
+| Fix | Why it matters |
 | --- | --- |
-| `070d7c0` | `REXGLUE_ROOT` was set with a directory-scoped `set()`, so it is empty in the scope where `rexglue_configure_target()` runs. The macOS MoltenVK ICD staging then resolves the absolute `/cmake/MoltenVK_icd.json` and the build fails. Hits **any** consumer using `add_subdirectory` on macOS. |
-| `e346c4e` | `rexglue_configure_target()` injects `rex_app.cpp` but links only `rex::runtime`, so consumers hit `'imgui.h' file not found` for a dependency they never asked for. |
-| `d38ac48` | `setcsr()` passed a `u32` under an `"r"` constraint into `msr fpcr, %0`, leaving the upper half of the X register undefined. Affects **every** arm64 target, Linux arm64 included. |
+| `REXGLUE_ROOT` set with a directory-scoped `set()` | Empty in the scope where `rexglue_configure_target()` runs, so the macOS MoltenVK ICD staging resolves the absolute `/cmake/MoltenVK_icd.json` and the build fails. |
+| `rexglue_configure_target()` links only `rex::runtime` | It injects `rex_app.cpp`, which reaches imgui headers, so consumers hit `'imgui.h' file not found` for a dependency they never asked for. |
+| `setcsr()` passed a `u32` into `msr fpcr, %0` | The operand is an X register, so the upper half was undefined - unspecified bits written to FPCR. Affects **every** arm64 target, Linux arm64 included. |
+| `rex_resolve_version()` read `CMAKE_SOURCE_DIR` | That is the top-level project, so under `add_subdirectory()` it describes the *consumer's* git tags. Any consumer with a `v*` tag ahead of the SDK's floor cannot configure at all. |
 
-Verified by stripping reNut's workarounds and building against these fixes
-alone: `REXGLUE_ROOT` resolved, the ICD staged, and the warning went to zero.
-
-### `reNut` @ `macos-arm64-port`
-
-Six commits, ordered so the platform-agnostic bug lands first:
-
-| Commit | Change |
-| --- | --- |
-| `3b841cd` | Build `cvar_menu.cpp` and `FPS.cpp`. Codegen emits calls into both, so the link fails on **every** platform without them. |
-| `5e7f5f4` | Use the SDK's `GetExecutableFolder()` in the path store. |
-| `2717e7d` | Replace the Win32 COM folder picker with SDL3's. |
-| `ee06934` | Port `frameHooks.cpp` off Win32. |
-| `7ccb62e` | Migrate to the rexglue-sdk 0.10 API. |
-| `895f483` | Add macOS ARM64 build support. |
-
-`895f483` keeps two workarounds that duplicate the SDK fixes above - setting
-`REXGLUE_ROOT` locally and linking `rex::ui`. That is deliberate: the pin
-`c94f5eb` is unpatched upstream, so reNut has to build against an SDK that
-still has both bugs. Drop them once the SDK fixes land.
-
-## Licensing
-
-**rexglue-sdk** is BSD 3-Clause (Tom Clay), with portions derived from Xenia.
-Contributing back is straightforward.
-
-**reNut has no LICENSE file** and no license statement in its README, so the
-default applies: all rights reserved. Forking on GitHub is covered by GitHub's
-terms, but relicensing it, redistributing it off-platform, or branding a
-separate project on top of it is not. Ask the maintainer to add a license
-before building anything public on it; contributing changes back by PR is fine
-either way.
-
-Separately, and regardless of either license: **never commit or ship game
-data.** The disc image, the extracted disc and the C++ codegen emits from the
-XEX are all excluded here, and that is what keeps a project like this viable.
+The SDK fork is pinned at `1c4a04b` - upstream `c94f5eb` plus those four. A
+commit rather than a tag, because `c94f5eb` sits past the `v0.10.0` tag. macOS
+support landed only after v0.9.0, and the SDK states plainly that it is early
+and expects breaking changes: the 0.8.0 API reNut was written against no longer
+exists.
 
 ## Known issues
 
 - MoltenVK logs `Metal does not support disabling primitive restart` once per
   pipeline creation. Benign, but it produced a 5.2 MB log in one run, so keep
-  `log_level = "off"` in `renut.toml` outside of debugging. Geometry glitches
-  would be the first thing to attribute to it.
+  `log_level = "off"` outside of debugging. Geometry glitches would be the first
+  thing to attribute to it.
 - Gameplay beyond boot - audio, controller input, sustained framerate - is not
   yet verified.
+- Intel Macs are untested. The presets ship arm64 only rather than claim support
+  that was never exercised.
+
+## Licensing
+
+`rexglue-sdk` is BSD 3-Clause, with portions derived from Xenia.
+
+**reNut ships no LICENSE file**, so the default applies: all rights reserved by
+its authors. That is why its code is consumed from a GitHub fork rather than
+copied into this repository. Nothing here claims any rights over it.
