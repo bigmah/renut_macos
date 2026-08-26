@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------
+# Game media
+# ---------------------------------------------------------------------------
+# The disc image and everything extracted from it are copyrighted, supplied by
+# the user, and very large (7.3 GB ISO / 6.1 GB extracted). Never commit or
+# redistribute them. The same goes for the C++ that codegen emits from the
+# guest XEX, which is a derivative of the game binary.
+*.iso
+/assets/
+**/assets/
+**/generated/
+
+# ---------------------------------------------------------------------------
+# Upstream checkouts
+# ---------------------------------------------------------------------------
+# tools/ holds independent git clones - rexglue-sdk, reNut and extract-xiso -
+# each with its own history, so they are not tracked here. The macOS port is
+# committed inside tools/reNut on the macos-arm64-port branch.
+/tools/
+
+# ---------------------------------------------------------------------------
+# Build output and scratch
+# ---------------------------------------------------------------------------
+/out/
+**/out/
+*.log
+*.bak
+.DS_Store
