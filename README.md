@@ -25,20 +25,35 @@ disc's `default.xex`.
 
 ## Layout
 
-`tools/` is gitignored. It holds three independent clones, two of which carry
-local work on a branch:
+`tools/` is gitignored. It holds three independent clones:
 
-| Path | Branch | Notes |
+| Path | Branch | Role |
 | --- | --- | --- |
-| `tools/rexglue-sdk` | `macos-arm64-fixes` | Recompiler and runtime. Pinned to `c94f5eb`. |
-| `tools/reNut` | `macos-arm64-port` | The game project and the macOS port. |
+| `tools/reNut` | `macos-arm64-port` | The game project and the macOS port. Vendors the SDK as a pinned submodule. |
+| `tools/rexglue-sdk` | `macos-arm64-fixes` | **Not used by the build.** A working copy that exists only to carry the SDK fixes for upstreaming. |
 | `tools/extract-xiso` | - | Builds from source; not in Homebrew. |
 
-**Pin the SDK.** macOS support landed only after v0.9.0, and the version that
-has it - 0.10.0 - is not tagged, so there is no release to ask for by name.
-`c94f5eb` is the verified commit. The SDK is also explicit that it is early and
-expects breaking changes: the 0.8.0 API this project was written against no
-longer exists.
+### Which SDK the build uses
+
+`tools/reNut/thirdparty/rexglue-sdk` - a submodule pinned to `c94f5eb`,
+upstream and unpatched. reNut resolves the SDK in this order, so the pinned
+copy wins over any sibling checkout lying around:
+
+1. `-DREXSDK_DIR=<path>`, if passed
+2. `thirdparty/rexglue-sdk` - the submodule
+3. `../rexglue-sdk` - a sibling checkout
+4. `find_package(rexglue)` - an installed SDK
+
+Pinning matters more than usual here. macOS support landed only after v0.9.0,
+and the version carrying it - 0.10.0 - is not tagged, so there is no release to
+ask for by name. The SDK is also explicit that it is early and expects breaking
+changes: the 0.8.0 API this project was written against no longer exists. The
+commit is recorded in the gitlink, so `--recurse-submodules` reproduces it
+exactly rather than trusting prose.
+
+The build deliberately runs against **unpatched** upstream. reNut carries its
+own workarounds for the two SDK bugs it would otherwise hit, so it stays
+buildable for anyone who has not applied `macos-arm64-fixes`.
 
 `tools/reNut/assets/` (extracted disc) and `tools/reNut/generated/` (C++ emitted
 from the guest XEX) are both gitignored as game-derived content.
@@ -58,12 +73,10 @@ C++, and ~1 GB of build output. The SDK's own submodules add ~400 MB.
 ```sh
 brew install cmake ninja vulkan-loader molten-vk
 
-# The SDK, pinned. Submodules are fetched after checkout, not during clone.
-git clone https://github.com/rexglue/rexglue-sdk.git tools/rexglue-sdk
-git -C tools/rexglue-sdk checkout c94f5eb
-git -C tools/rexglue-sdk submodule update --init --recursive
+# reNut brings the pinned SDK with it as a submodule.
+git clone --recurse-submodules <your-renut-fork> tools/reNut
+git -C tools/reNut checkout macos-arm64-port
 
-git clone https://github.com/masterspike52/reNut.git tools/reNut
 git clone https://github.com/XboxDev/extract-xiso.git tools/extract-xiso
 
 # extract-xiso handles the XGD2 partition offset correctly
@@ -71,22 +84,22 @@ cmake -S tools/extract-xiso -B tools/extract-xiso/build -G Ninja -DCMAKE_BUILD_T
 cmake --build tools/extract-xiso/build
 ./tools/extract-xiso/build/extract-xiso -d tools/reNut/assets your_game.iso
 
-# Build the codegen tool, then recompile the XEX (~10s)
-cmake --preset mac-arm64 -S tools/rexglue-sdk \
+# Build the codegen tool from the pinned SDK, then recompile the XEX (~10s)
+SDK=tools/reNut/thirdparty/rexglue-sdk
+cmake --preset mac-arm64 -S $SDK \
   -DCMAKE_C_COMPILER=/usr/bin/clang -DCMAKE_CXX_COMPILER=/usr/bin/clang++ \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3
-cmake --build tools/rexglue-sdk/out/build/mac-arm64 --config Release --target rexglue --parallel
-(cd tools/reNut && ../rexglue-sdk/out/mac-arm64/Release/rexglue codegen renut_manifest.toml)
+cmake --build $SDK/out/build/mac-arm64 --config Release --target rexglue --parallel
+(cd tools/reNut && thirdparty/rexglue-sdk/out/mac-arm64/Release/rexglue codegen renut_manifest.toml)
 
-# Build the game. reNut finds the SDK as a sibling automatically; pass
-# -DREXSDK_DIR=<path> if it lives somewhere else.
+# Build the game. The submodule is found automatically.
 cmake --preset mac-arm64-release -S tools/reNut
 cmake --build tools/reNut/out/build/mac-arm64-release --parallel
 ```
 
-Those clones are **upstream**, which does not build on macOS as-is: that is
-what the two branches under [Local branches](#local-branches) provide. Apply
-both before the codegen and build steps.
+The `macos-arm64-port` branch is what adds both the macOS support and the
+submodule, so upstream reNut cloned on its own will not build here. The SDK
+fixes branch is *not* required - see [Local branches](#local-branches).
 
 First launch shows a path-setup wizard. To skip it, write `renut.cfg` next to
 the binary with `game_data_root` and `user_data_root` set.
