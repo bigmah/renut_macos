@@ -25,13 +25,17 @@ disc's `default.xex`.
 
 ## Layout
 
-`tools/` is gitignored. It holds three independent clones:
+`tools/reNut` is tracked as a submodule. The other two are local-only checkouts
+and stay gitignored.
 
-| Path | Branch | Role |
+| Path | Tracked | Role |
 | --- | --- | --- |
-| `tools/reNut` | `macos-arm64-port` | The game project and the macOS port. Vendors the SDK as a pinned submodule. |
-| `tools/rexglue-sdk` | `macos-arm64-fixes` | **Not used by the build.** A working copy that exists only to carry the SDK fixes for upstreaming. |
-| `tools/extract-xiso` | - | Builds from source; not in Homebrew. |
+| `tools/reNut` | submodule, pinned `f4c41bc` | The game project and the macOS port. Vendors the SDK at `thirdparty/rexglue-sdk`. |
+| `tools/rexglue-sdk` | no | **Not used by the build.** A local working copy that holds the SDK fixes branch for upstreaming. |
+| `tools/extract-xiso` | no | Build tool; not in Homebrew. |
+
+Submodules nest, so `--recurse-submodules` on this repo brings reNut and, inside
+it, the pinned SDK - one clone gets the whole toolchain.
 
 ### Which SDK the build uses
 
@@ -73,9 +77,8 @@ C++, and ~1 GB of build output. The SDK's own submodules add ~400 MB.
 ```sh
 brew install cmake ninja vulkan-loader molten-vk
 
-# reNut brings the pinned SDK with it as a submodule.
-git clone --recurse-submodules <your-renut-fork> tools/reNut
-git -C tools/reNut checkout macos-arm64-port
+# This repo, with reNut and the pinned SDK nested inside it.
+git clone --recurse-submodules <this-repo> xbox && cd xbox
 
 git clone https://github.com/XboxDev/extract-xiso.git tools/extract-xiso
 
@@ -97,17 +100,26 @@ cmake --preset mac-arm64-release -S tools/reNut
 cmake --build tools/reNut/out/build/mac-arm64-release --parallel
 ```
 
-The `macos-arm64-port` branch is what adds both the macOS support and the
-submodule, so upstream reNut cloned on its own will not build here. The SDK
-fixes branch is *not* required - see [Local branches](#local-branches).
+The submodule already points at the port commit, so there is no branch to check
+out by hand. The SDK fixes branch is *not* required to build - see
+[Local branches](#local-branches).
 
 First launch shows a path-setup wizard. To skip it, write `renut.cfg` next to
 the binary with `game_data_root` and `user_data_root` set.
 
 ## Local branches
 
-Neither branch is hosted here - both live in their own clone under `tools/`,
-as commits against their respective upstreams, so they stay submittable.
+Both are commits against their respective upstreams, so they stay submittable.
+
+The reNut port is published at
+[bigmah/renut_macos](https://github.com/bigmah/renut_macos) and is what the
+submodule points at. That repo is **not** a fork of `masterspike52/reNut`, so
+opening a PR upstream from it is not possible as-is; doing that later means
+forking and re-pushing the same commits, which is cheap since they are already
+rebased on upstream.
+
+The SDK fixes are **local-only** - no remote hosts them yet. They are not
+needed to build, since reNut carries its own workarounds.
 
 ### `rexglue-sdk` @ `macos-arm64-fixes`
 

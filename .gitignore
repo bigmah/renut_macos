@@ -13,10 +13,12 @@
 # ---------------------------------------------------------------------------
 # Upstream checkouts
 # ---------------------------------------------------------------------------
-# tools/ holds independent git clones - rexglue-sdk, reNut and extract-xiso -
-# each with its own history, so they are not tracked here. The macOS port is
-# committed inside tools/reNut on the macos-arm64-port branch.
-/tools/
+# tools/reNut is tracked as a submodule (it carries the macOS port, and vendors
+# the pinned SDK at thirdparty/rexglue-sdk). The other two are local-only
+# checkouts: extract-xiso is a build tool, and tools/rexglue-sdk exists only to
+# hold the SDK fixes branch for upstreaming - the build does not use it.
+/tools/rexglue-sdk/
+/tools/extract-xiso/
 
 # ---------------------------------------------------------------------------
 # Build output and scratch

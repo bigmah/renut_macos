@@ -1,0 +1,3 @@
+[submodule "tools/reNut"]
+	path = tools/reNut
+	url = https://github.com/bigmah/renut_macos.git
