@@ -101,6 +101,33 @@ update_data_root = ""
 Runtime settings live in `tools/reNut/renut.toml`. Keep `log_level = "off"`
 outside of debugging - see Known issues.
 
+## Performance on Apple M4
+
+The release preset is tuned for the machine this port is validated on: native
+arm64 with `-mcpu=apple-m4`, `-O3`, and ThinLTO. The Xenos renderer is Vulkan,
+but the bundled MoltenVK implementation translates it to Metal; there is no
+separate direct-Metal renderer in the current ReXGlue SDK. If you need a build
+for an older Apple Silicon generation, replace `-mcpu=apple-m4` in
+`tools/reNut/CMakePresets.json` with the appropriate target before configuring.
+
+The settings at the bottom of `tools/reNut/renut.toml` are important, not just
+quality preferences. In particular, `readback_memexport = false` avoids a
+synchronous GPU-to-CPU path that otherwise waits on a Vulkan fence during many
+draws. On the M4 Pro test machine that omission reduced the opening sequence to
+about 1 FPS; disabling it lets the same sequence progress normally and the
+title screen render in the tens of FPS depending on scene complexity.
+
+Shader and pipeline descriptions persist under
+`~/.local/share/renut/cache/shaders/shareable/`. The path wizard must preserve
+the SDK's non-editable cache path when it restores the saved game/user paths;
+otherwise every launch starts with an empty cache and repeats shader work.
+
+PGO is deliberately not enabled. Sampling after the readback fix showed the
+guest CPU portion at roughly 2 ms per frame while GPU submission/presentation
+was the limit. ThinLTO captures the low-risk cross-module optimization benefit;
+a useful PGO profile would require representative gameplay and would optimize
+the side that currently has ample headroom.
+
 ## Why forks rather than upstream
 
 Neither upstream builds on macOS as-is.
@@ -136,9 +163,10 @@ exists.
 ## Known issues
 
 - MoltenVK logs `Metal does not support disabling primitive restart` once per
-  pipeline creation. Benign, but it produced a 5.2 MB log in one run, so keep
-  `log_level = "off"` outside of debugging. Geometry glitches would be the first
-  thing to attribute to it.
+  pipeline creation. It is benign, but can produce megabytes of terminal I/O.
+  `play.sh` therefore defaults MoltenVK to error-only logging; launch with
+  `MVK_CONFIG_LOG_LEVEL=2 ./play.sh` when those warnings are needed. Geometry
+  glitches would be the first thing to attribute to it.
 - Gameplay beyond boot - audio, controller input, sustained framerate - is not
   yet verified.
 - Intel Macs are untested. The presets ship arm64 only rather than claim support
