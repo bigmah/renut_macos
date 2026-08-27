@@ -122,6 +122,16 @@ Shader and pipeline descriptions persist under
 the SDK's non-editable cache path when it restores the saved game/user paths;
 otherwise every launch starts with an empty cache and repeats shader work.
 
+The runtime also avoids three host-side hot loops found by sampling the native
+build. The final Vulkan presentation pipeline now records its swapchain format,
+so it is reused instead of destroyed and recompiled through MoltenVK every
+frame. The UI object library is instantiated only in the runtime dylib instead
+of a second time in the executable. Finally, POSIX timers and multi-object waits
+sleep on condition variables rather than polling or repeatedly yielding. In an
+animated title-screen run on the M4 Pro, interval process usage fell from about
+239% CPU to 184% CPU (where 100% is one core), while a 10-second sample showed
+the timer and audio wait threads blocked rather than spinning.
+
 PGO is deliberately not enabled. Sampling after the readback fix showed the
 guest CPU portion at roughly 2 ms per frame while GPU submission/presentation
 was the limit. ThinLTO captures the low-risk cross-module optimization benefit;
