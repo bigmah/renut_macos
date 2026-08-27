@@ -132,6 +132,22 @@ animated title-screen run on the M4 Pro, interval process usage fell from about
 239% CPU to 184% CPU (where 100% is one core), while a 10-second sample showed
 the timer and audio wait threads blocked rather than spinning.
 
+A later gameplay-driven pass removed the remaining dominant poll in the title
+itself. The game waits for Xenos fence writebacks in `sub_8228F558`; the hook at
+that loop now sleeps on a command-processor notification and wakes when
+`EVENT_WRITE_SHD` or the ring read-pointer writeback advances. On the same M4
+Pro title-screen workload, interval process usage fell from roughly 209-235%
+to 82-94%. In a loaded Showdown Town save it measured roughly 50-65%, with the
+three formerly polling guest threads blocked on the notification while idle.
+
+`high_pixel_density = false` is also intentional for this title on macOS. The
+game produces a 1280x720 frame; a Retina 1280x720-point window otherwise creates
+a 2560x1440 swapchain. Rendering the final presentation pass at 1x and letting
+macOS upscale it preserves the window's logical size while reducing swapchain
+pixels by 75%. The focused title-screen draw interval dropped from about 22 ms
+to 17-18 ms in the measured scene. Set it back to `true` if sharper ImGui and
+presentation output are preferable to the GPU headroom.
+
 PGO is deliberately not enabled. Sampling after the readback fix showed the
 guest CPU portion at roughly 2 ms per frame while GPU submission/presentation
 was the limit. ThinLTO captures the low-risk cross-module optimization benefit;
@@ -177,8 +193,9 @@ exists.
   `play.sh` therefore defaults MoltenVK to error-only logging; launch with
   `MVK_CONFIG_LOG_LEVEL=2 ./play.sh` when those warnings are needed. Geometry
   glitches would be the first thing to attribute to it.
-- Gameplay beyond boot - audio, controller input, sustained framerate - is not
-  yet verified.
+- A loaded Showdown Town save is covered by the short performance smoke test;
+  long sessions, broad controller coverage, and audio correctness still need
+  wider playtesting.
 - Intel Macs are untested. The presets ship arm64 only rather than claim support
   that was never exercised.
 
