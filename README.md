@@ -148,6 +148,45 @@ pixels by 75%. The focused title-screen draw interval dropped from about 22 ms
 to 17-18 ms in the measured scene. Set it back to `true` if sharper ImGui and
 presentation output are preferable to the GPU headroom.
 
+The largest win so far came from the render pass count rather than from any
+shading work. Sampling a loaded save showed the GPU around 90% busy while the
+title still produced only about 21 FPS at 720p, which is not a plausible amount
+of work for this hardware. Counting per frame showed why: over 240 Vulkan render
+passes, of which roughly 200 re-entered the *same* render target after it had
+just been closed. On a tile-based GPU every one of those stores and reloads the
+whole colour and depth buffer, so the frame was spending its time moving tile
+memory rather than shading.
+
+Two changes address it, both in the SDK fork and both behind cvars.
+
+`shared_memory_upload_coalesce_kb` (default 4096) covers the dominant cause. A
+draw that touches guest memory the CPU has dirtied has to upload it, and the
+upload has to interrupt the open render pass. Draws walk a dirtied vertex buffer
+a slice at a time, so one buffer was costing around twenty pass breaks. Uploading
+the whole contiguous invalidated run around the request collapses that to one.
+Only pages that are invalid are ever added, and pages the GPU itself wrote are
+marked valid, so widening cannot overwrite GPU-produced data. This alone took
+render passes per frame from 268 to 97 and roughly halved frame time.
+
+`vulkan_narrow_render_area` (default on) covers the cost of the passes that
+remain. A render target is allocated for the whole height the EDRAM addressing
+can reach - 1280x2048 for a 1280-wide surface - while a game draws into a small
+part of it, and the render area is what the GPU stores and reloads around a pass.
+Bounding each pass by the guest scissor for draws, and by the transfer rectangles
+for EDRAM ownership transfers, cut attachment area per frame from about 529 to 42
+megapixels.
+
+Measured over matching 100-second windows of the attract loop, uncapped: 42.1 FPS
+before both changes, 66.2 FPS after, with render passes per frame down from 218
+to 79. On a visible window the title screen went from 20-27 FPS at 74-93% GPU to a
+locked 30 FPS at under 60% GPU, and about 57-67 FPS with the cap removed. Set
+either cvar to 0 / false to compare.
+
+`REX_FRAMELOG=<path>` writes a per-frame CSV - frame time, draws, render passes,
+transfer passes, pass re-entries, barriers, attachment area and submissions. It
+costs nothing when the variable is unset, and it is what the numbers above come
+from.
+
 PGO is deliberately not enabled. Sampling after the readback fix showed the
 guest CPU portion at roughly 2 ms per frame while GPU submission/presentation
 was the limit. ThinLTO captures the low-risk cross-module optimization benefit;
